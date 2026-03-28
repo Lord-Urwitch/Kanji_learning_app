@@ -1,14 +1,7 @@
 package com.example.kanjilearning
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,39 +21,29 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.kanjilearning.data.KanjiDeck
 import com.example.kanjilearning.logic.DrawingResult
+import com.example.kanjilearning.ui.KanjiDrawingView
 import com.example.kanjilearning.ui.KanjiViewModel
+import com.example.kanjilearning.ui.StrokeOrderDiagram
 import com.example.kanjilearning.ui.StrokePath
 
-class MainActivity : ComponentActivity() {
-    private val vm: KanjiViewModel by viewModels()
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            MaterialTheme {
-                KanjiTrainerScreen(vm)
-            }
-        }
-    }
-}
-
 @Composable
-fun KanjiApp(vm: KanjiViewModel = viewModel()) {
+fun KanjiTrainerScreen(vm: KanjiViewModel = viewModel()) {
     val state by vm.uiState.collectAsState()
+    var isDrawing by remember { mutableStateOf(false) }
 
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         LazyColumn(
@@ -68,30 +51,48 @@ fun KanjiApp(vm: KanjiViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(padding)
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            userScrollEnabled = !isDrawing
         ) {
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text("Kanji Trainer (Top 100)", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                         Text("Kanji: ${state.current.kanji}", fontSize = 48.sp)
                         Text("Hiragana: ${state.current.hiragana}")
                         Text("English: ${state.current.english}")
                         Text("German: ${state.current.german}")
-                        Text("Stroke order: ${state.current.strokeOrderHint}")
-                        Text("Expected strokes: ${state.current.strokeCount}")
+                        StrokeOrderDiagram(
+                            kanji = state.current.kanji,
+                            strokeOrderHint = state.current.strokeOrderHint,
+                            strokeCount = state.current.strokeCount,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Text("Write the kanji here", fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
-                        DrawPad(
+                        HandwritingPad(
                             strokes = state.strokes,
                             onStrokeStart = vm::startStroke,
-                            onStrokeContinue = vm::continueStroke
+                            onStrokeContinue = vm::continueStroke,
+                            onDrawingStateChanged = { isDrawing = it }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Scrolling is disabled while your finger is down so vertical strokes stay inside the writing area.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -104,20 +105,26 @@ fun KanjiApp(vm: KanjiViewModel = viewModel()) {
             }
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Text("Progress", fontWeight = FontWeight.Bold)
                         Text("Attempts: ${state.attemptCount}")
                         Text("Correct: ${state.correctCount}")
                         val rate = if (state.attemptCount == 0) 0 else (100 * state.correctCount / state.attemptCount)
                         Text("Success rate: $rate%")
-                        state.evaluation?.let {
-                            val label = when (it.result) {
-                                DrawingResult.CORRECT -> "✅ Correct"
-                                DrawingResult.PARTLY_FALSE -> "🟡 Partly false"
-                                DrawingResult.FALSE -> "❌ False"
+                        state.evaluation?.let { evaluation ->
+                            val label = when (evaluation.result) {
+                                DrawingResult.CORRECT -> "Correct"
+                                DrawingResult.PARTLY_FALSE -> "Partly false"
+                                DrawingResult.FALSE -> "False"
                             }
-                            Text("Result: $label (score ${"%.2f".format(it.score)})", fontWeight = FontWeight.SemiBold)
-                            Text(it.details)
+                            Text(
+                                "Result: $label (score ${"%.2f".format(evaluation.score)})",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(evaluation.details)
                         }
                     }
                 }
@@ -125,7 +132,7 @@ fun KanjiApp(vm: KanjiViewModel = viewModel()) {
             item {
                 Text("Kanji list", fontWeight = FontWeight.Bold)
             }
-            items(com.example.kanjilearning.data.KanjiDeck.top100) { item ->
+            items(KanjiDeck.top100) { item ->
                 Card(Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.padding(10.dp),
@@ -146,42 +153,29 @@ fun KanjiApp(vm: KanjiViewModel = viewModel()) {
 }
 
 @Composable
-private fun DrawPad(
+private fun HandwritingPad(
     strokes: List<StrokePath>,
     onStrokeStart: (Offset) -> Unit,
-    onStrokeContinue: (Offset) -> Unit
+    onStrokeContinue: (Offset) -> Unit,
+    onDrawingStateChanged: (Boolean) -> Unit
 ) {
-    Canvas(
+    AndroidView(
+        factory = { context ->
+            KanjiDrawingView(context).apply {
+                this.onStrokeStart = onStrokeStart
+                this.onStrokeContinue = onStrokeContinue
+                this.onDrawingStateChanged = onDrawingStateChanged
+            }
+        },
+        update = { view ->
+            view.onStrokeStart = onStrokeStart
+            view.onStrokeContinue = onStrokeContinue
+            view.onDrawingStateChanged = onDrawingStateChanged
+            view.syncFromState(strokes)
+        },
         modifier = Modifier
             .size(300.dp)
             .border(2.dp, Color.Gray)
             .background(Color.White)
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        onStrokeStart(offset.toNormalized())
-                    },
-                    onDrag = { change, _ ->
-                        onStrokeContinue(change.position.toNormalized())
-                    }
-                )
-            }
-    ) {
-        strokes.forEach { stroke ->
-            if (stroke.points.isEmpty()) return@forEach
-            val path = Path().apply {
-                moveTo(stroke.points.first().x * size.width, stroke.points.first().y * size.height)
-                stroke.points.drop(1).forEach { p ->
-                    lineTo(p.x * size.width, p.y * size.height)
-                }
-            }
-            drawPath(path = path, color = Color.Black, style = Stroke(width = 14f, cap = StrokeCap.Round))
-        }
-    }
-}
-
-private fun Offset.toNormalized(): Offset {
-    val x = (x / 300f).coerceIn(0f, 1f)
-    val y = (y / 300f).coerceIn(0f, 1f)
-    return Offset(x, y)
+    )
 }
